@@ -3,18 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <title>BINGO ADMIN</title>
-
 <link rel="icon" href="data:,">
-
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-
 <style>
   body { font-family: system-ui; background:#111; color:#fff; padding:20px }
+  h1,h2 { margin-top:20px }
   button { padding:6px 12px; margin:4px; cursor:pointer }
   select { padding:6px }
   .card {
     display:inline-flex; align-items:center; justify-content:center;
-    width:44px; height:44px; margin:4px;
+    width:42px; height:42px; margin:3px;
     border-radius:6px; font-weight:bold; cursor:pointer;
   }
   .available { background:#333 }
@@ -26,32 +24,45 @@
 
 <h1>🎯 BINGO ADMIN</h1>
 
+<!-- ROOM -->
 <section>
   <button onclick="createRoom()">➕ สร้างห้อง</button>
   <select id="roomSelect" onchange="selectRoom()"></select>
-  <div id="roomInfo"></div>
+  <pre id="roomInfo"></pre>
 </section>
 
 <hr>
 
-<h2>👥 ผู้เล่น</h2>
-<ul id="players"></ul>
+<!-- PLAYERS -->
+<section>
+  <h2>👥 ผู้เล่น</h2>
+  <ul id="players"></ul>
+</section>
 
 <hr>
 
-<h2>🎫 ใบ BINGO</h2>
-<div id="cards"></div>
+<!-- CARDS -->
+<section>
+  <h2>🎫 ใบ BINGO (กดเพื่อแจก)</h2>
+  <div id="cards"></div>
+</section>
 
 <hr>
 
-<h2>🎲 ควบคุมเกม</h2>
-<button onclick="drawNumber()">สุ่มเลข</button>
-<button onclick="newRound()">🔁 รอบใหม่</button>
+<!-- CONTROL -->
+<section>
+  <h2>🎲 ควบคุมเกม</h2>
+  <button onclick="drawNumber()">สุ่มเลข</button>
+  <button onclick="newRound()">🔁 รอบใหม่</button>
+</section>
 
 <hr>
 
-<h2>🏆 ผู้ชนะ</h2>
-<div id="winner">—</div>
+<!-- WINNER -->
+<section>
+  <h2>🏆 ผู้ชนะ</h2>
+  <div id="winner">—</div>
+</section>
 
 <script>
 /* ================= CONFIG ================= */
@@ -63,19 +74,27 @@ const db = supabase.createClient(
   SERVICE_ROLE_KEY
 )
 
-
 let currentRoomId = null
 
-/* ================= ROOMS ================= */
+/* ================= UTILS ================= */
+function randomBingoNumbers() {
+  const nums = new Set()
+  while (nums.size < 25) {
+    nums.add(Math.floor(Math.random()*75)+1)
+  }
+  return Array.from(nums)
+}
+
+/* ================= ROOM ================= */
 async function loadRooms() {
   const { data } = await db
     .from('rooms')
     .select('id, room_code, status')
-    .order('created_at')
+    .order('created_at', { ascending:false })
 
   document.getElementById('roomSelect').innerHTML =
     '<option value="">-- เลือกห้อง --</option>' +
-    (data || []).map(r =>
+    (data||[]).map(r =>
       `<option value="${r.id}">
         ${r.room_code} (${r.status})
       </option>`
@@ -83,21 +102,43 @@ async function loadRooms() {
 }
 
 async function createRoom() {
-  const code = 'BINGO-' + Math.floor(Math.random()*9000+1000)
+  const roomCode = 'BINGO-' + Math.floor(1000+Math.random()*9000)
 
-  const { data } = await db
+  const { data:room, error } = await db
     .from('rooms')
-    .insert({ room_code: code })
+    .insert({
+      room_code: roomCode,
+      status: 'waiting',
+      current_round: 1,
+      card_limit: 50
+    })
     .select()
     .single()
 
-  currentRoomId = data.id
+  if (error) return alert('สร้างห้องไม่สำเร็จ')
+
+  // สร้างใบ BINGO 50 ใบ
+  const cards = []
+  for (let i=1;i<=50;i++) {
+    cards.push({
+      room_id: room.id,
+      round: 1,
+      card_no: i,
+      numbers: randomBingoNumbers(),
+      marks: Array(25).fill(false),
+      status: 'available'
+    })
+  }
+
+  await db.from('cards').insert(cards)
+
+  currentRoomId = room.id
   await loadRooms()
-  document.getElementById('roomSelect').value = currentRoomId
+  document.getElementById('roomSelect').value = room.id
   loadAll()
 }
 
-function selectRoom() {
+async function selectRoom() {
   currentRoomId = document.getElementById('roomSelect').value
   if (currentRoomId) loadAll()
 }
@@ -111,7 +152,9 @@ async function loadRoomInfo() {
     .single()
 
   document.getElementById('roomInfo').innerText =
-    `ROOM: ${data.room_code} | ROUND: ${data.current_round} | STATUS: ${data.status}`
+`ROOM: ${data.room_code}
+STATUS: ${data.status}
+ROUND: ${data.current_round}`
 }
 
 async function loadPlayers() {
@@ -121,8 +164,8 @@ async function loadPlayers() {
     .eq('room_id', currentRoomId)
 
   document.getElementById('players').innerHTML =
-    (data || []).map(p =>
-      `<li>${p.custom_name || p.display_name} (ID: ${p.id})</li>`
+    (data||[]).map(p =>
+      `<li>${p.custom_name || p.display_name} | ${p.id}</li>`
     ).join('')
 }
 
@@ -134,7 +177,7 @@ async function loadCards() {
     .order('card_no')
 
   document.getElementById('cards').innerHTML =
-    (data || []).map(c =>
+    (data||[]).map(c =>
       `<div class="card ${c.status}"
         onclick="assignCard('${c.id}')">
         ${c.card_no}
@@ -158,7 +201,7 @@ async function loadWinner() {
 
 /* ================= ACTION ================= */
 async function assignCard(cardId) {
-  const playerId = prompt('ใส่ PLAYER ID')
+  const playerId = prompt('ใส่ PLAYER ID (1 คนเลือกหลายใบได้)')
   if (!playerId) return
 
   await db.from('cards')
@@ -170,7 +213,6 @@ async function assignCard(cardId) {
 }
 
 async function drawNumber() {
-  if (!currentRoomId) return alert('เลือกห้องก่อน')
   await db.rpc('draw_bingo_number', { room_id: currentRoomId })
   await db.rpc('auto_check_and_bingo', { room_id: currentRoomId })
 }
@@ -190,7 +232,7 @@ async function loadAll() {
 
 /* ================= INIT ================= */
 loadRooms()
-
 </script>
+
 </body>
 </html>
