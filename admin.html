@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <title>BINGO ADMIN</title>
+
+<link rel="icon" href="data:,">
+
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
 <style>
   body { font-family: system-ui; background:#111; color:#fff; padding:20px }
-  h1,h2 { margin-top:20px }
   button { padding:6px 12px; margin:4px; cursor:pointer }
   select { padding:6px }
   .card {
@@ -23,7 +26,6 @@
 
 <h1>🎯 BINGO ADMIN</h1>
 
-<!-- ROOM CONTROL -->
 <section>
   <button onclick="createRoom()">➕ สร้างห้อง</button>
   <select id="roomSelect" onchange="selectRoom()"></select>
@@ -32,43 +34,31 @@
 
 <hr>
 
-<!-- PLAYERS -->
-<section>
-  <h2>👥 ผู้เล่น</h2>
-  <ul id="players"></ul>
-</section>
+<h2>👥 ผู้เล่น</h2>
+<ul id="players"></ul>
 
 <hr>
 
-<!-- CARDS -->
-<section>
-  <h2>🎫 ใบ BINGO</h2>
-  <div id="cards"></div>
-</section>
+<h2>🎫 ใบ BINGO</h2>
+<div id="cards"></div>
 
 <hr>
 
-<!-- CONTROL -->
-<section>
-  <h2>🎲 ควบคุมเกม</h2>
-  <button onclick="drawNumber()">สุ่มเลข</button>
-  <button onclick="newRound()">🔁 รอบใหม่</button>
-</section>
+<h2>🎲 ควบคุมเกม</h2>
+<button onclick="drawNumber()">สุ่มเลข</button>
+<button onclick="newRound()">🔁 รอบใหม่</button>
 
 <hr>
 
-<!-- WINNER -->
-<section>
-  <h2>🏆 ผู้ชนะ</h2>
-  <div id="winner">—</div>
-</section>
+<h2>🏆 ผู้ชนะ</h2>
+<div id="winner">—</div>
 
 <script>
 /* ================= CONFIG ================= */
 const SUPABASE_URL = 'https://gzpvekespgikowgpgnes.supabase.co'
 const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6cHZla2VzcGdpa293Z3BnbmVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5NDkxODAsImV4cCI6MjA4NDUyNTE4MH0.L8YfyPFbj7gWYvclZGsziknjDapYmdwM3PghEKziZWc'
 
-const supabase = supabaseJs.createClient(
+const db = supabaseJs.createClient(
   SUPABASE_URL,
   SERVICE_ROLE_KEY
 )
@@ -77,14 +67,14 @@ let currentRoomId = null
 
 /* ================= ROOMS ================= */
 async function loadRooms() {
-  const { data } = await supabase
+  const { data } = await db
     .from('rooms')
     .select('id, room_code, status')
     .order('created_at')
 
   document.getElementById('roomSelect').innerHTML =
     '<option value="">-- เลือกห้อง --</option>' +
-    data.map(r =>
+    (data || []).map(r =>
       `<option value="${r.id}">
         ${r.room_code} (${r.status})
       </option>`
@@ -94,7 +84,7 @@ async function loadRooms() {
 async function createRoom() {
   const code = 'BINGO-' + Math.floor(Math.random()*9000+1000)
 
-  const { data } = await supabase
+  const { data } = await db
     .from('rooms')
     .insert({ room_code: code })
     .select()
@@ -111,9 +101,9 @@ function selectRoom() {
   if (currentRoomId) loadAll()
 }
 
-/* ================= LOAD DATA ================= */
+/* ================= LOAD ================= */
 async function loadRoomInfo() {
-  const { data } = await supabase
+  const { data } = await db
     .from('rooms')
     .select('*')
     .eq('id', currentRoomId)
@@ -124,26 +114,26 @@ async function loadRoomInfo() {
 }
 
 async function loadPlayers() {
-  const { data } = await supabase
+  const { data } = await db
     .from('players')
     .select('id, custom_name, display_name')
     .eq('room_id', currentRoomId)
 
   document.getElementById('players').innerHTML =
-    data.map(p =>
+    (data || []).map(p =>
       `<li>${p.custom_name || p.display_name} (ID: ${p.id})</li>`
     ).join('')
 }
 
 async function loadCards() {
-  const { data } = await supabase
+  const { data } = await db
     .from('cards')
     .select('*')
     .eq('room_id', currentRoomId)
     .order('card_no')
 
   document.getElementById('cards').innerHTML =
-    data.map(c =>
+    (data || []).map(c =>
       `<div class="card ${c.status}"
         onclick="assignCard('${c.id}')">
         ${c.card_no}
@@ -152,28 +142,25 @@ async function loadCards() {
 }
 
 async function loadWinner() {
-  const { data } = await supabase
+  const { data } = await db
     .from('winners')
     .select('*, players(custom_name)')
     .eq('room_id', currentRoomId)
     .order('created_at', { ascending:false })
     .limit(1)
 
-  if (data.length > 0) {
-    document.getElementById('winner').innerText =
-      `🎉 ${data[0].players.custom_name} | CARD ${data[0].card_id}`
-  } else {
-    document.getElementById('winner').innerText = '—'
-  }
+  document.getElementById('winner').innerText =
+    data?.length
+      ? `🎉 ${data[0].players.custom_name} | CARD ${data[0].card_id}`
+      : '—'
 }
 
-/* ================= ACTIONS ================= */
+/* ================= ACTION ================= */
 async function assignCard(cardId) {
-  const playerId = prompt('ใส่ PLAYER ID เพื่อแจกใบ (1 คนเลือกซ้ำได้)')
+  const playerId = prompt('ใส่ PLAYER ID')
   if (!playerId) return
 
-  await supabase
-    .from('cards')
+  await db.from('cards')
     .update({ status:'assigned', player_id:playerId })
     .eq('id', cardId)
     .eq('status','available')
@@ -183,17 +170,16 @@ async function assignCard(cardId) {
 
 async function drawNumber() {
   if (!currentRoomId) return alert('เลือกห้องก่อน')
-  await supabase.rpc('draw_bingo_number', { room_id: currentRoomId })
-  await supabase.rpc('auto_check_and_bingo', { room_id: currentRoomId })
+  await db.rpc('draw_bingo_number', { room_id: currentRoomId })
+  await db.rpc('auto_check_and_bingo', { room_id: currentRoomId })
 }
 
 async function newRound() {
   if (!confirm('เริ่มรอบใหม่ ?')) return
-  await supabase.rpc('reset_new_round', { room_id: currentRoomId })
+  await db.rpc('reset_new_round', { room_id: currentRoomId })
   loadAll()
 }
 
-/* ================= INIT ================= */
 async function loadAll() {
   await loadRoomInfo()
   await loadPlayers()
@@ -201,13 +187,8 @@ async function loadAll() {
   await loadWinner()
 }
 
+/* ================= INIT ================= */
 loadRooms()
-
-/* ================= REALTIME ================= */
-supabase.channel('admin-realtime')
-  .on('postgres_changes', { event:'*', schema:'public', table:'cards' }, loadCards)
-  .on('postgres_changes', { event:'*', schema:'public', table:'winners' }, loadWinner)
-  .subscribe()
 
 </script>
 </body>
